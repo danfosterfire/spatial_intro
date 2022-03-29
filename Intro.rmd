@@ -620,7 +620,7 @@ Suppose we want a raster of the fire perimeters in our SEKI AOI:
 
 ```{r}
 frap_fires_clipped_raster = 
-  rasterize(x = frap_fires_clipped,
+  raster::rasterize(x = frap_fires_clipped,
             field = 'year',
             y = seki_dem)
 
@@ -877,4 +877,12 @@ See the references section.
 
 # Good sources of spatial data
 
-terraclimate, bioclim, dems,
+  - [UC Merced's Climatology Lab](https://www.climatologylab.org/) produces 
+  the gridmet and terraclimate datasets
+  - [raster::getData()](https://rdrr.io/cran/raster/man/getData.html) will pull 
+  worldclim and bioclim data
+  - [USFS Region 5 GIS data](https://www.fs.usda.gov/main/r5/landmanagement/gis) 
+  for some reason is now missing the FACTS database? Anyone have a clue why 
+  that might be?
+  - [CALFIRE FRAP](https://frap.fire.ca.gov/mapping/gis-data/)
+  - [spData package](https://github.com/Nowosad/spData)
