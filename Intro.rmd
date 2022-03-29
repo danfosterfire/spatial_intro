@@ -1,0 +1,880 @@
+---
+title: "Intro to Spatial Data Analysis in R"
+author: "Danny Foster"
+date: "3/21/2022"
+output: html_document
+---
+
+# Intro
+
+This markdown document provides a condensed overview of methods for doing 
+spatial data analysis and map-making in R for the Battles Lab. I'm aiming for a 
+broad-but-shallow introduction, with the idea that you can pursue individual 
+topics more deeply if they're relevant to your work. This document borrows 
+heavily from the excellent free ebook 
+[Geocomputation with R](https://geocompr.robinlovelace.net/index.html) by 
+Robin Lovelace. I'll editorialize with my own experience and add additional 
+resources that have been helpful to me.
+
+## Pros and cons of R for spatial data analysis
+
+Pros:
+
+  - Scripting built into analysis vastly improves reproducibility of your work.
+  - Keeping your whole analysis pipeline (aspatial data, spatial data, 
+  analysis, figure/map production) all in the R environment makes project 
+  organization easier.
+  - I personally perfer the R / ggplot aesthetic for mapmaking.
+
+Cons:
+
+  - R packages generally not as graceful with big spatial datasets (e.g. 
+  statewide 30m rasters, the whole region 5 FACTS database). The situation is 
+  improving (see packages `terra` and `stars`) but still requires being thoughtful 
+  about where/how the computer is storing and processing data in situations 
+  where you could just blindly plug and play in ArcGIS. 
+
+
+## Packages and resources
+
+Go-to packages:
+
+```{r}
+
+library(here) # for easy filepathing
+
+library(raster) # for raster data
+
+library(sf) # for vector data
+
+library(ggplot2) # for mapmaking
+
+library(tidyverse) # for data munging, including of sf objects
+
+```
+
+Other useful packages:
+
+```{r}
+library(terra) # next-gen version of raster/sf, with a less developed guidance/support 
+# ecosystem but better abilities to handle big data
+# https://rspatial.org/terra/pkg/index.html
+
+library(stars) # next-gen version of raster, IMO not as developed as terra
+# https://r-spatial.github.io/stars/
+
+library(tmap) # another mapping package, particularly useful for data exploration
+# https://cran.r-project.org/web/packages/tmap/vignettes/tmap-getstarted.html
+```
+
+I highly recommend these resources for doing spatial analysis in R. I'll flag 
+other relevant resources and packages in specific sections:
+
+  - **Function documentation**: help(function_name) is your most useful tool, 
+  once google or this document have led you to the function name
+  - [Geocomputation with R](https://geocompr.robinlovelace.net/index.html)
+  - [Rspatial.org](https://rspatial.org/)
+  - [Drawing beautiful maps programmatically with R, sf, and ggplot2](https://r-spatial.org/r/2018/10/25/ggplot2-sf.html)
+  - [Stack overflow](https://stackoverflow.com/)
+  - [tmap colors](https://geocompr.github.io/post/2019/tmap-color-scales/)
+  - [conversion between different spatial classes in R](https://geocompr.github.io/post/2021/spatial-classes-conversion/)
+  - [Geocompr vignettes and solutions](https://geocompr.github.io/vignettes/)
+  
+  
+# Spatial data management and data exploration
+
+There are two main types of spatial data: 
+
+  - **raster data** represent spatial information using a continuous grid (or 
+  sometimes multiple grids stacked on eachother)
+  - **vector data** represent spatial information using points, lines, or 
+  polygons
+  
+
+## Vector Data
+
+```{r}
+# load DX area of interest from a shapefile
+dx_aoi = 
+  sf::st_read(here::here('data', 'small', 'dxstudyarea.shp'))
+
+
+```
+
+The metadata tells us that there's only a single feature (point, line, or 
+polygon) with six "fields" (columns of data). You can print the metadata any 
+time by calling the sf object:
+
+```{r}
+# print metadata
+dx_aoi
+```
+
+Usefully this also tells us what 
+the coordinate reference system (CRS) of the data is. 
+
+We can do a basic plot, which gives one panel per field:
+
+```{r}
+plot(dx_aoi)
+
+```
+
+This isn't that helpful though, and the `tmap` library is great for providing 
+Arcmap style interactive maps, using a `ggplot` style syntax:
+
+```{r}
+tmap::tmap_mode('view') # sets the viewer to interactive; the alternative "plot" 
+# used for standard figure-style maps
+
+tmap::tm_shape(dx_aoi)+ # tell tmap what data to use
+  tmap::tm_borders(col = 'blue')+ # draw just polygon borders with a blue color
+# we could also have set col = colname, where colname is the name of a field in 
+# the shapefile to color by some variable. altneratives are tm_polygon() to have 
+  # fill, tm_dots() for point data, and tm_lines() for linear features
+  tmap::tm_scale_bar() # add a scale bar
+
+
+```
+
+Now we have an interactive map with some nice baselayers for context. We will 
+add additional layers later.
+
+Often vector data will be stored in a geodatabase, which we can also read using 
+`sf`:
+
+```{r}
+
+# get the names of all the layers in the geodatabase
+sf::st_layers(here::here('data', 'big', 'fire20_1.gdb'))
+
+frap_fires = 
+  # note that you have to specify the layer name if reading from a geodatabase;
+  # if you don't it will read in the first layer by default. 
+  sf::st_read(here::here('data',
+                     'big',
+                     'fire20_1.gdb'),
+              layer = 'firep20_1')
+
+```
+
+
+
+## Raster Data
+
+Most raster data types are handled well by the `raster` package. You might also 
+use `terra` or `stars`, especially for big datasets.
+
+A single raster layer can be loaded using the `raster` function:
+
+```{r}
+mmi = raster::raster(here::here('data', 
+                                'small',
+                                'mmi_sum5_sc408ss_2016.bsq'))
+
+```
+
+Again we can look at metadata easily:
+
+```{r}
+mmi
+```
+
+This raster has attributes, meaning that the actual cell data values (integers 
+from 0 to 255) are mapped to categories. In this case, the cell data values 
+map directly to % mortality:
+
+```{r}
+head(levels(mmi)[[1]])
+```
+
+And basic plotting is also easy:
+
+```{r}
+plot(mmi)
+```
+
+Tmap again offers a nice interactive map:
+
+```{r}
+tmap_mode('view')
+tmap::tm_shape(mmi)+
+  tmap::tm_raster()+
+  tmap::tm_scale_bar()
+
+```
+
+Note that `tmap` has automatically downsampled the large raster to make it 
+plot in a reasonable amount of time.
+
+### Multiple layers - a raster stack
+
+Net CDF files are a common file format for raster stacks:
+
+```{r}
+terraclimate = raster::stack(here::here('data',
+                                         'big',
+                                         'TerraClimate_vpd_2020.nc'))
+
+```
+
+It didn't like something about the projection here, let's take a closer look:
+
+```{r}
+terraclimate
+```
+
+Seems OK. Note that this raster stack has 12 bands, one for each month. 
+
+```{r}
+plot(terraclimate) # plot them all
+
+# plot individual layers
+plot(terraclimate[[1]])
+
+```
+
+
+# Common Data Munging
+
+## Reprojections and transformations
+
+
+The basic metadata of either a `raster` or `sf` object will tell you the 
+coordinate reference system. You can also extract it specifically:
+
+```{r}
+# just the basics
+dx_aoi
+
+# the full version
+st_crs(dx_aoi)
+
+mmi
+
+raster::crs(mmi)
+
+```
+
+Note that the raster object has a much simpler representation for the CRS. 
+The raster is using the old style `proj4string` representation of a CRS, while 
+`sf` has been updated to the new much-more-explicit version. The switchover has 
+been a big deal in the spatial open software community. In my experience, so 
+far packages have been pretty clever about speaking either CRS language and 
+converting when needed (sometimes with warnings). However, things may break at 
+some point in the future, and google is your friend.
+
+Reprojecting either a raster or a vector object can be very slow if the object 
+is large and/or complex, so often you'll want to try to crop / downscale / 
+subset the data **before** trying to reproject it. 
+
+```{r}
+
+# load the DX plot data
+dx_plots = 
+  st_read(here::here('data',
+                     'small',
+                     'DX_plots_29orig.shp'))
+
+# test equality of the CRS
+st_crs(dx_plots) == st_crs(dx_aoi) # false; one is wgs84 and another is NAD83
+
+
+```
+
+We can **reproject/transform** the coordinate reference system, usually so that 
+multiple objects are on the same system and we can have them interact.
+
+```{r}
+
+# with vector data
+# reproject the plots to match the aoi
+dx_plots = 
+  dx_plots %>%
+  sf::st_transform(crs = st_crs(dx_aoi))
+
+# now they're on the same CRS
+st_crs(dx_plots) == st_crs(dx_aoi)
+
+
+# with raster data
+vpd_small = 
+  raster::projectRaster(from = terraclimate[[1]], crs = 'EPSG:26911')
+
+
+```
+
+The use of the EPSG string is usually the quickest and easiest way to define 
+a projection under both the old and new systems, and the common CRSes are very 
+google-able.
+
+We also can **set** the coordinate reference system, without reprojecting. 
+You want to be very careful doing this, and usually only use it when for some 
+reason the data doesn't know the CRS but you do:
+
+```{r}
+dx_busted = dx_aoi
+st_crs(dx_busted) = NA
+
+dx_busted
+
+st_crs(dx_busted) = st_crs(dx_aoi)
+
+dx_busted
+
+```
+
+## Cropping and buffering
+
+Cropping both rasters and polygons is much faster if you crop by a rectangular 
+extent than if you're trying to crop by a polygon. If you're trying to 
+crop a big dataset down to a more manageable size you almost always want to 
+do a rough first pass using a rectangular extent, and then go back and get 
+your fine clipping later.
+
+### Raster Cropping
+
+```{r}
+
+# start with a big MMI raster
+plot(mmi)
+
+# set values greater than 100 to NA
+mmi[mmi>100] = NA
+
+# first do a rough rectangular crop to a buffered AOI; note st_bbox() to get the 
+# rectangular extent of the polygon
+mmi_aoi = raster::crop(mmi,
+                       dx_aoi %>%
+                         st_buffer(100) %>%
+                         st_bbox())
+
+# rough rectangular crop is fast
+plot(mmi_aoi)
+
+# now mask by the smaller raster by the polygon
+mmi_masked = 
+  raster::mask(mmi_aoi, st_buffer(dx_aoi,100))
+
+# 
+plot(mmi_masked)
+
+```
+
+The built in attribute data for this raster annoying map 0 and NA as the same 
+color, but they are different in the underlying data.
+
+```{r}
+plot(mmi_masked==0)
+```
+
+### Vector Cropping and Buffering
+
+```{r}
+
+# first, reproject the small AOI polygon to match the CRS of the big fire polygons 
+# dataset; we do this even though we want to ultimately use the CRS of the aoi 
+# polygon because its much faster to reproject the small dataset
+
+
+frap_fires_clipped = 
+  
+  # start with frap fires
+  frap_fires %>%
+  
+  # was getting a weird error message googling it leads to this stack exchange 
+  # thread https://stackoverflow.com/questions/61404151/error-when-using-st-intersects-in-cpl-geos-binopst-geometryx-st-geometryy
+  # which suggests using st_cast()
+  st_cast('MULTIPOLYGON') %>%
+
+  # rough rectangular crop; note that we first reproject the aoi polygon to 
+  # match the CRS of the fire polygons (we change the AOI polygon because its 
+  # smaller and simpler, and thus faster to reproject)
+  sf::st_crop(
+    dx_aoi %>%
+      
+      # buffer the aoi by 1000 units; the units for the current CRS are meters
+      st_buffer(1000) %>%
+      
+      # transform the aoi
+      st_transform(crs = st_crs(frap_fires))) %>%
+  
+  # reproject the clipped polygons to match that of the aoi
+  st_transform(crs = st_crs(dx_aoi)) %>%
+  
+  # for nicer plotting, make year a numeric
+  mutate(year = as.numeric(as.character(YEAR_)))
+
+plot(frap_fires_clipped)
+
+head(frap_fires_clipped)
+
+tm_shape(frap_fires_clipped)+
+  # add the fire polygons, using the year for fill color and transparency of 0.5
+  tm_polygons(col = 'year', alpha = 0.5)+
+  tm_shape(dx_aoi)+
+  tm_borders('blue')
+
+```
+
+
+## Raster operations
+
+### Raster algebra
+
+If you have multiple rasters (or raster layers) and want to perform some 
+per-pixel operation its pretty easy, as long as the rasters line up:
+
+```{r}
+
+# get the average vpd value from january and february 2020
+vpd_avg = 
+  (terraclimate[[1]]+terraclimate[[2]])/2
+
+plot(vpd_avg)
+
+# TRUE if vpd in a pixel is above 2, FALSE otherwise
+vpd_above_2 = terraclimate[[1]] > 2
+
+plot(vpd_above_2)
+```
+
+### Masking
+
+We can 'mask' one layer by another.
+
+```{r}
+# make a version of the vpd_avg raster, but only showing cells where 
+# VPD in january is above 2
+masked_avg = 
+  raster::mask(x = vpd_avg,
+               mask = vpd_above_2,
+               maskvalue = FALSE)
+
+plot(masked_avg)
+
+```
+
+### Aggregating
+
+We can downsample a numeric raster to make it coarser resolution and easier 
+to work with:
+
+```{r}
+aggregated_vpd = 
+  raster::aggregate(x = terraclimate[[1]],
+                    fact = 30)
+
+plot(aggregated_vpd)
+```
+
+### Terrain
+
+DEMs are a common type of raster and there's a built in function `terrain` for 
+calculating all sorts of useful products from a DEM:
+
+```{r}
+if (!file.exists(here::here('data', 'small','seki_dem.tif'))){
+      
+  # download the DEM
+  seki_dem = 
+        elevatr::get_elev_raster(locations = 
+                                   as(dx_aoi %>% st_buffer(100), 'Spatial'),
+                           prj = st_crs(dx_aoi)$proj4string,
+                           z = 13)
+      
+  # crop the DEM
+  seki_dem = raster::crop(seki_dem, dx_aoi %>% st_buffer(100))
+      
+  # save the DEM
+  raster::writeRaster(seki_dem, 
+                          filename = 
+                            here::here('data',
+                                       'small',
+                                       'seki_dem.tif'))
+      
+  } else {
+  
+    # just load the DEM if its already downloaded   
+    seki_dem = 
+      raster::raster(here::here('data', 'small','seki_dem.tif')) 
+    
+  }
+
+plot(seki_dem)
+
+seki_terrain = 
+  raster::terrain(seki_dem,
+                  opt = c('slope', 'aspect', 'TPI', 'TRI', 'roughness','flowdir'))
+
+
+plot(seki_terrain)
+```
+
+Raster algegra is useful for getting a southwestness index:
+
+```{r}
+seki_aspect = 
+  seki_dem %>%
+  raster::terrain(opt = 'aspect',
+                  unit = 'degrees')
+
+# make a new raster where the value of every pixel is abs(current_value-225)
+seki_southwestness = 
+  abs(seki_aspect-225)
+
+# for every pixel where the value is greater than 180, get a new value
+# (which is 360 - current value of cells where the value is > 180)
+seki_southwestness[seki_southwestness>180] = 
+  360-seki_southwestness[seki_southwestness>180]
+
+# for every pixel, divide the value by 180
+seki_southwestness = seki_southwestness/180
+
+plot(seki_aspect)
+plot(seki_southwestness)
+
+```
+
+### window
+
+It's also easy to do moving-window type analyses with the raster package:
+
+```{r}
+
+seki_dem_avg = 
+  raster::focal(x = seki_dem,
+                
+                # w defines the size of the window in pixels; see 
+                # help(focal)
+                w = matrix(nrow = 91, ncol = 91, data = rep(1, times = 8281)),
+                
+                # give each cell the mean value of all its neighbors; you can 
+                # supply other functions here, including custom functions
+                fun = mean,
+                na.rm = TRUE)
+
+plot(seki_dem)
+plot(seki_dem_avg)
+
+
+```
+
+## Vector operations
+
+### tidyverse operations
+
+One of the nice things about the `sf` package is how nicely it plays with 
+tidyverse style selection, mutation, summarization, etc.:
+
+```{r}
+names(frap_fires)
+
+# start with frap fires
+big_frap_fires = 
+  
+  frap_fires %>%
+  
+  # keep only fires greater than 100000 acres
+  filter(GIS_ACRES >= 100000)
+  
+plot(big_frap_fires['YEAR_'])
+
+# get the total area in hectares of the big fires in each year
+big_frap_fires_aggregated = 
+  big_frap_fires %>%
+  mutate(area_ha = GIS_ACRES * 0.404) %>%
+  group_by(YEAR_) %>%
+  summarise(area_ha = sum(area_ha)) %>%
+  ungroup() 
+
+```
+
+### fixing broken polygons
+
+A lot of the time, weird errors about broken geometry can be fixed with one of 
+two common tricks:
+
+```{r}
+
+big_frap_fires_aggregated = 
+  
+  # start with potentially broken geometry
+  big_frap_fires_aggregated %>%
+  
+  # buffer by 0
+  st_buffer(0) %>%
+  
+  # st_make_valid()
+  st_make_valid()
+
+```
+
+Those two together take care of most busted geometries.
+
+## Converting between polygons and rasters
+
+### From polygon to raster
+
+Suppose we want a raster of the fire perimeters in our SEKI AOI:
+
+```{r}
+frap_fires_clipped_raster = 
+  rasterize(x = frap_fires_clipped,
+            field = 'year',
+            y = seki_dem)
+
+plot(frap_fires_clipped_raster)
+
+```
+
+See also the `fasterize` package for a faster more efficient version of this 
+function, which can be very slow for large polygons. 
+
+### From raster to polygon
+
+We can also convert rasters to polygons:
+
+```{r}
+plot(seki_dem)
+
+seki_above_1600 = 
+  
+  # frequently, we want to aggregate a raster before converting it
+  raster::aggregate(seki_dem, fact = 10) >= 1600
+
+plot(seki_above_1600)
+
+seki_above_1600_sf = 
+  
+  # convert to a SpatialPolygonsDataFrame
+  rasterToPolygons(seki_above_1600, dissolve = TRUE) %>%
+  
+  # convert to an sf object
+  sf::st_as_sf()
+
+seki_above_1600_sf
+tm_shape(seki_above_1600_sf)+
+  tm_polygons('layer')
+```
+
+## Conversion to / from data frames
+
+### From raster to data frame
+
+```{r}
+seki_dem_df = 
+  seki_dem %>%
+  as.data.frame(xy = TRUE)
+
+head(seki_dem_df)
+
+```
+
+### From sf to data frame
+
+```{r}
+frap_fires_df = 
+  frap_fires %>%
+  as.data.frame() %>%
+  select(-Shape) # usually is select(-geometry)
+
+head(frap_fires_df)
+
+```
+
+## Spatial data extraction
+
+### Extracting raster data at points
+
+```{r}
+# get the elevation at each DX plot
+dx_plots$elev_m = 
+  raster::extract(seki_dem,
+                dx_plots)
+
+tm_shape(seki_dem)+
+  tm_raster(palette = 'viridis', style = 'cont')+
+  tm_shape(dx_plots)+
+  tm_dots(col = 'elev_m')+
+  tm_scale_bar()
+```
+
+### Extracting raster data at polygons
+
+
+```{r}
+
+# include df = TRUE so that we get a dataframe with polygon IDs
+burned_elev = 
+  raster::extract(seki_dem,
+                frap_fires_clipped, 
+                df = TRUE)
+
+# the ID column gives the polygon ID, the row number in the polygons table; 
+# there is one row per raster cell
+head(burned_elev)
+```
+
+### st_intersection()
+
+Use st_intersection() (or less frequently st_difference() or st_sym_difference())
+to get the intersection, difference, or symmetrical difference between 
+sf objects. For example, if we want to flag the DX plots as above or below 1600m 
+elevation:
+
+```{r}
+# start with points and polygons
+tm_shape(seki_above_1600_sf)+
+  tm_polygons('layer')+
+  tm_shape(dx_plots)+
+  tm_dots()
+
+# convert the 0-1 layer to a more clear TRUE/FALSE flag
+seki_above_1600_sf = 
+  seki_above_1600_sf %>%
+  mutate(above_1600 = layer==1) %>%
+  select(-layer)
+
+# use st_intersection() to extract teh polygon values to the plot points
+dx_plots = 
+  dx_plots %>%
+  st_intersection(seki_above_1600_sf)
+
+# now dx_plots has a column for above_1600, which was extracted from the polygons
+head(dx_plots)
+```
+
+## Random or gridded sample points
+
+Dropping gridded sample points over some area of interest is easy:
+
+```{r}
+gridded_plots = 
+  dx_aoi %>%
+  
+  # see the function help for options for a hexagonal grid, a grid based on 
+  # corners rather than centers, or to return grid polygons instead of points
+  st_make_grid(
+    # alternatively, you can use the cellsize option to set the grid spacing
+    n = c(10, 10),
+    what = 'centers',
+    square = TRUE,
+  )
+
+# by default this gives us a grid over the whole bbox, so use st_intersection 
+# to only keep points in the aoi
+tm_shape(dx_aoi)+
+  tm_borders(col = 'black')+
+  tm_shape(gridded_plots)+
+  tm_dots('red')
+
+gridded_plots = 
+  gridded_plots %>%
+  
+  # take an inner buffer of 100m to avoid putting plots right on the boundary
+  st_intersection(dx_aoi %>%
+                    st_buffer(-100))
+
+tm_shape(dx_aoi)+
+  tm_borders(col = 'black')+
+  tm_shape(gridded_plots)+
+  tm_dots('red')
+
+```
+
+We can also place plots randomly, and even stratify them by polygon:
+
+```{r}
+tm_shape(frap_fires_clipped)+
+  tm_borders('red')
+
+fire_plots = 
+  frap_fires_clipped %>%
+  st_sample(
+    
+    # or just 'size = 10' to sample 10 points distributed across all the polygons
+    size = rep(10, times = nrow(frap_fires_clipped)),
+    
+    # can also be 'regular' or 'hexagonal'
+    type = 'random',
+    
+    # if false, it'll give you almost the right number of points
+    exact = TRUE
+  ) %>%
+  st_as_sf()
+
+head(fire_plots)
+
+# this is a good example lfor how helpful the zoomable interactive map is for 
+# checking out spatial data
+tm_shape(frap_fires_clipped)+
+  tm_borders('red')+
+  tm_shape(fire_plots)+
+  tm_dots('blue')
+
+```
+
+# Making maps and figures
+
+## ggplot2 basics
+
+For static maps like you'd use in a presentation or paper, I prefer `ggplot` 
+over `tmap`, because I find it more flexible to get the details exactly the 
+way you want them.
+
+```{r}
+ggplot()+
+  
+  # add raster data; note that you have to extract it to a dataframe with x 
+  # and y coordinates first; make sure the CRS matches that of the vector data 
+  # you want to use so that things line up
+  geom_raster(data = seki_dem_df,
+              aes(x = x, y = y, fill = seki_dem))+
+  scale_fill_viridis_c(option = 'C')+
+  
+  # add vector data
+  geom_sf(data = dx_aoi,
+          fill = NA,
+          color = 'black',
+          lwd = 2)+
+  
+  coord_sf()+
+  theme_minimal()+
+  
+  # nice scale bar using ggspatial package
+  ggspatial::annotation_scale()
+
+
+```
+
+## Basemaps
+
+Basic interactive basemaps are pretty easy to do with `tmap`, but getting 
+nice basemaps working for a static plot like you'd use in a paper or 
+presentation is not easy. Here's an example using the package `basemaps`:
+
+```{r}
+basemaps::basemap_ggplot(ext = st_buffer(dx_aoi, 100),
+                  map_service = 'esri',
+                  map_type = 'world_imagery')+
+  geom_sf(data = st_transform(dx_aoi, 'EPSG:3857'),
+          fill = NA,
+          lwd = 2,
+          color = 'yellow')+
+  theme_bw()+
+  ggspatial::annotation_scale()+
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+
+```
+
+
+## Fancy inset maps
+
+See the references section.
+
+# Good sources of spatial data
+
+terraclimate, bioclim, dems,
